@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# VARIABLES
+ref=PATH_TO_REF
+threads=$SLURM_JOB_CPUS_PER_NODE
+BAM_LIST="bam_list.txt"  # List of BAM files
+CHR_LIST="chr_list.txt"  # List of chromosomes/regions
+OUT_DIR="SNP_calling"  # Directory for VCF results
+MERGED_DIR="SNP_calling/merged"  # Directory for merged VCFs
+FILT_DIR="SNP_calling/filtered"  # Directory for filtered VCFs
+
+# LOAD REQUIRED MODULES
+module load bcftools/1.12
+module load vcftools
+module load htslib/1.8
+module load parallel  # Load GNU Parallel module if necessary
+
+# SNP CALLING FUNCTION
+call_snp() {
+  local CHR=$1
+  echo "Processing chromosome/region: $CHR"
+  bcftools mpileup -Ou -f $ref -r $CHR -b $BAM_LIST -I -a AD,DP,SP,ADF,ADR -q 5 --threads $threads | \
+  bcftools call -a GP,GQ -mv -Oz --threads $threads > $OUT_DIR/"$CHR".vcf.gz
+}
+
+export -f call_snp
+
+# Process chromosomes/regions in parallel. Adjust "60" the number of jobs in parallel.
+cat $CHR_LIST | parallel -j 60 call_snp
+
+

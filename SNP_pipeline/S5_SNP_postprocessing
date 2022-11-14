@@ -1,0 +1,54 @@
+#!/bin/bash
+#SBATCH -N 1
+#SBATCH -n 10
+#SBATCH -J snp_calling
+#SBATCH -t 60:00:00
+#SBATCH -p all
+
+# VARIABLES
+ref=PATH_TO_REF
+threads=$SLURM_JOB_CPUS_PER_NODE
+BAM_LIST="bam_list.txt"  # List of BAM files
+CHR_LIST="chr_list.txt"  # List of chromosomes/regions
+OUT_DIR="SNP_calling"  # Directory for VCF results
+MERGED_DIR="SNP_calling/merged"  # Directory for merged VCFs
+FILT_DIR="SNP_calling/filtered"  # Directory for filtered VCFs
+
+# MERGE VCFs: Merge all VCF files into one
+FIRST_CHR=$(head -n1 $CHR_LIST)
+zgrep '^#' $OUT_DIR/"$FIRST_CHR".vcf.gz | grep -v '^##contig=<ID=scaf' > $MERGED_DIR/merged.vcf
+
+while read -r CHR; do
+  zgrep -v '^#' $OUT_DIR/"$CHR".vcf.gz >> $MERGED_DIR/merged.vcf
+done < $CHR_LIST
+
+# Compress and index the merged VCF
+bgzip $MERGED_DIR/merged.vcf
+tabix -p vcf $MERGED_DIR/merged.vcf.gz
+
+# FILTERING: Filter the merged VCF
+# Initial filter with bcftools
+bcftools filter -e 'MQ < 30' $MERGED_DIR/merged.vcf.gz -Ov > $FILT_DIR/filtered.tmp.vcf
+
+# Print number of filtered sites
+zgrep -v '^#' $FILT_DIR/filtered.tmp.vcf | wc -l
+
+# Further filtering with vcftools
+vcftools --gzvcf $FILT_DIR/filtered.tmp.vcf \
+    --minQ 30 \
+    --minGQ 20 \
+    --minDP 5 \
+    --mac 2 \
+    --max-alleles 2 \
+    --max-missing 0.7 \
+    --maf 0.05 \
+    --recode \
+    --stdout > $FILT_DIR/filtered.vcf
+
+# Compress and index the final filtered VCF
+bgzip $FILT_DIR/filtered.vcf
+tabix -p vcf $FILT_DIR/filtered.vcf.gz
+
+# Annotate
+java -jar snpEFF.jar build -gff3 -v Dexilis
+java -jar snpEFF.jar -v Dexilis $FILT_DIR/filtered.vcf.gz > $FILT_DIR/filtered.ann.vcf.gz

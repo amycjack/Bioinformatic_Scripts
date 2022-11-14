@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH -N 1
+#SBATCH -n 15
+#SBATCH --array=1-8
+#SBATCH -J bwa1
+#SBATCH -t 20:00:00
+#SBATCH -p all
+
+module load bwa
+module load samtools
+
+mkdir -p mapped_reads ./mapped_reads/stats
+
+samplesheet="sample_sheet1.txt"
+ref=PATH_TO_REF
+threads=$SLURM_JOB_CPUS_PER_NODE
+name=`sed -n "$SLURM_ARRAY_TASK_ID"p $samplesheet |  awk '{print $1}'` 
+r1=`sed -n "$SLURM_ARRAY_TASK_ID"p $samplesheet |  awk '{print $2}'` 
+r2=`sed -n "$SLURM_ARRAY_TASK_ID"p $samplesheet |  awk '{print $3}'`
+
+bwa mem -t $threads $ref ./trimmed_reads/"${name}_forward_paired.fq.gz" ./trimmed_reads/"${name}_reverse_paired.fq.gz" | \
+samtools view -bS -T $ref - | \
+samtools sort -@ $threads -o ./mapped_reads/$name.sorted.bam && \
+samtools flagstat ./mapped_reads/$name.sorted.bam > ./mapped_reads/stats/$name.mapped.sort.stats
